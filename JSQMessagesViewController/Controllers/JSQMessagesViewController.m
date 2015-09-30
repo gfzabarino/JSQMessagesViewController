@@ -802,9 +802,17 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     if (![self.inputToolbar.contentView.textView isFirstResponder] && self.toolbarBottomLayoutGuide.constant == 0.0f) {
         return;
     }
+    
+    if (CGRectGetMinY(keyboardFrame) < 0) {
+        return;
+    }
 
     CGFloat heightFromBottom = CGRectGetMaxY(self.collectionView.frame) - CGRectGetMinY(keyboardFrame);
 
+    if (heightFromBottom < keyboardFrame.size.height && self.toolbarBottomLayoutGuide.constant <= 1) {
+        return;
+    }
+    
     heightFromBottom = MAX(0.0f, heightFromBottom);
 
     [self jsq_setToolbarBottomLayoutGuideConstant:heightFromBottom];
