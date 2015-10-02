@@ -809,7 +809,8 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
     CGFloat heightFromBottom = CGRectGetMaxY(self.collectionView.frame) - CGRectGetMinY(keyboardFrame);
 
-    if (heightFromBottom < keyboardFrame.size.height && self.toolbarBottomLayoutGuide.constant <= 1) {
+    // If the input is in the bottom, the only position accepted is when the keyboard full appear
+    if (heightFromBottom != keyboardFrame.size.height + 1 && self.toolbarBottomLayoutGuide.constant <= 1) {
         return;
     }
     
