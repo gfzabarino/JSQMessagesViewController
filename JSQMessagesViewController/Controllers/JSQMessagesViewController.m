@@ -799,7 +799,10 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 - (void)keyboardController:(JSQMessagesKeyboardController *)keyboardController keyboardDidChangeFrame:(CGRect)keyboardFrame
 {
-    if (![self.inputToolbar.contentView.textView isFirstResponder] && self.toolbarBottomLayoutGuide.constant == 0.0f) {
+    if (![self.inputToolbar.contentView.textView isFirstResponder] && 
+        self.toolbarBottomLayoutGuide.constant >= 0.0f && 
+        self.toolbarBottomLayoutGuide.constant <= 1.0f) {
+        
         return;
     }
     
