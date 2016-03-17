@@ -234,6 +234,14 @@
 - (void)finishSendingMessage;
 
 /**
+ *  The observing of the contentSize of the input toolbar's text view, and therefore the resizing
+ *  of it only works after viewDidAppear: is called.
+ *  Use this method if you don't want to wait for viewDidAppear: to be called to set a custom initial
+ *  text to the input toolbar's text view and have it correctly resized.
+ */
+- (void)configureWithInitialTextAndResize:(NSString *)initialText;
+
+/**
  *  Completes the "sending" of a new message by resetting the `inputToolbar`, adding a new collection view cell in the collection view,
  *  reloading the collection view, and scrolling to the newly sent message as specified by `automaticallyScrollsToMostRecentMessage`.
  *  Scrolling to the new message can be animated as specified by the animated parameter.
