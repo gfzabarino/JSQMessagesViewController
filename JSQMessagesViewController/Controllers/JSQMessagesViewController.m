@@ -16,7 +16,7 @@
 //  Released under an MIT license: http://opensource.org/licenses/MIT
 //
 
-#import "JSQMessagesViewController+Private.h"
+#import "JSQMessagesViewController.h"
 
 #import "JSQMessagesCollectionViewFlowLayoutInvalidationContext.h"
 
@@ -61,35 +61,9 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 @property (strong, nonatomic) NSIndexPath *selectedIndexPathForMenu;
 
-- (NSString *)jsq_currentlyComposedMessageText;
+@property (weak, nonatomic) UIGestureRecognizer *currentInteractivePopGestureRecognizer;
 
-- (void)jsq_handleDidChangeStatusBarFrameNotification:(NSNotification *)notification;
-- (void)jsq_didReceiveMenuWillShowNotification:(NSNotification *)notification;
-- (void)jsq_didReceiveMenuWillHideNotification:(NSNotification *)notification;
-
-- (void)jsq_updateKeyboardTriggerPoint;
-- (void)jsq_setToolbarBottomLayoutGuideConstant:(CGFloat)constant;
-
-- (void)jsq_handleInteractivePopGestureRecognizer:(UIGestureRecognizer *)gestureRecognizer;
-
-- (BOOL)jsq_inputToolbarHasReachedMaximumHeight;
-- (void)jsq_adjustInputToolbarForComposerTextViewContentSizeChange:(CGFloat)dy;
-- (void)jsq_adjustInputToolbarHeightConstraintByDelta:(CGFloat)dy;
-- (void)jsq_scrollComposerTextViewToBottomAnimated:(BOOL)animated;
-
-- (void)jsq_adjustWithOldContentSize:(CGSize)previousContentSize newContentSize:(CGSize)newContentSize;
-
-- (void)jsq_updateCollectionViewInsets;
-- (void)jsq_setCollectionViewInsetsTopValue:(CGFloat)top bottomValue:(CGFloat)bottom;
-
-- (BOOL)jsq_isMenuVisible;
-
-- (void)jsq_addObservers;
-- (void)jsq_removeObservers;
-
-- (void)jsq_registerForNotifications:(BOOL)registerForNotifications;
-
-- (void)jsq_addActionToInteractivePopGestureRecognizer:(BOOL)addAction;
+@property (assign, nonatomic) BOOL textViewWasFirstResponderDuringInteractivePop;
 
 @end
 
@@ -119,10 +93,14 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
     self.jsq_isObserving = NO;
 
+    self.toolbarHeightConstraint.constant = self.inputToolbar.preferredDefaultHeight;
+
     self.collectionView.dataSource = self;
     self.collectionView.delegate = self;
 
-    [self jsq_configureMessagesInputToolbar];
+    self.inputToolbar.delegate = self;
+    self.inputToolbar.contentView.textView.placeHolder = [NSBundle jsq_localizedStringForKey:@"new_message"];
+    self.inputToolbar.contentView.textView.delegate = self;
 
     self.automaticallyScrollsToMostRecentMessage = YES;
 
@@ -132,6 +110,9 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     self.incomingCellIdentifier = [JSQMessagesCollectionViewCellIncoming cellReuseIdentifier];
     self.incomingMediaCellIdentifier = [JSQMessagesCollectionViewCellIncoming mediaCellReuseIdentifier];
 
+    // NOTE: let this behavior be opt-in for now
+    // [JSQMessagesCollectionViewCell registerMenuAction:@selector(delete:)];
+
     self.showTypingIndicator = NO;
 
     self.showLoadEarlierMessagesHeader = NO;
@@ -140,30 +121,12 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
     [self jsq_updateCollectionViewInsets];
 
-    self.keyboardController = [[JSQMessagesKeyboardController alloc] initWithTextView:self.inputToolbar.contentView.textView
-                                                                          contextView:self.view
-                                                                 panGestureRecognizer:self.collectionView.panGestureRecognizer
-                                                                             delegate:self];
-}
-
-- (void)jsq_configureMessagesInputToolbar
-{
-	self.toolbarHeightConstraint.constant = self.inputToolbar.preferredDefaultHeight;
-	self.inputToolbar.delegate = self;
-	self.inputToolbar.contentView.textView.placeHolder = [NSBundle jsq_localizedStringForKey:@"new_message"];
-	self.inputToolbar.contentView.textView.delegate = self;
-}
-
-- (void)jsq_updateMessagesInputToolbar {
-    self.toolbarHeightConstraint.constant = self.inputToolbar.preferredDefaultHeight;
-    [self.view setNeedsUpdateConstraints];
-    [UIView animateWithDuration:0.2 animations:^{
-        [self.view layoutIfNeeded];
-    }];
-    
-    [self jsq_updateCollectionViewInsets];
-    if (self.automaticallyScrollsToMostRecentMessage) {
-        [self scrollToBottomAnimated:YES];
+    // Don't set keyboardController if client creates custom content view via -loadToolbarContentView
+    if (self.inputToolbar.contentView.textView != nil) {
+        self.keyboardController = [[JSQMessagesKeyboardController alloc] initWithTextView:self.inputToolbar.contentView.textView
+                                                                              contextView:self.view
+                                                                     panGestureRecognizer:self.collectionView.panGestureRecognizer
+                                                                                 delegate:self];
     }
 }
 
@@ -174,19 +137,9 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
     _collectionView.dataSource = nil;
     _collectionView.delegate = nil;
-    _collectionView = nil;
 
     _inputToolbar.contentView.textView.delegate = nil;
     _inputToolbar.delegate = nil;
-    _inputToolbar = nil;
-
-    _toolbarHeightConstraint = nil;
-    _toolbarBottomLayoutGuide = nil;
-
-    _senderId = nil;
-    _senderDisplayName = nil;
-    _outgoingCellIdentifier = nil;
-    _incomingCellIdentifier = nil;
 
     [_keyboardController endListeningForKeyboard];
     _keyboardController = nil;
@@ -245,12 +198,13 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     [self.collectionView.collectionViewLayout invalidateLayout];
 
     if (self.automaticallyScrollsToMostRecentMessage) {
-        [self scrollToBottomAnimated:NO];
-        [self.collectionView.collectionViewLayout invalidateLayoutWithContext:[JSQMessagesCollectionViewFlowLayoutInvalidationContext context]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self scrollToBottomAnimated:NO];
+            [self.collectionView.collectionViewLayout invalidateLayoutWithContext:[JSQMessagesCollectionViewFlowLayoutInvalidationContext context]];
+        });
     }
 
     [self jsq_updateKeyboardTriggerPoint];
-    [self.keyboardController beginListeningForKeyboard];
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -258,6 +212,7 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     [super viewDidAppear:animated];
     [self jsq_addObservers];
     [self jsq_addActionToInteractivePopGestureRecognizer:YES];
+    [self.keyboardController beginListeningForKeyboard];
 
     if ([UIDevice jsq_isCurrentDeviceBeforeiOS8]) {
         [self.snapshotView removeFromSuperview];
@@ -267,15 +222,15 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
-    [self jsq_addActionToInteractivePopGestureRecognizer:NO];
     self.collectionView.collectionViewLayout.springinessEnabled = NO;
-    [self.keyboardController endListeningForKeyboard];
 }
 
 - (void)viewDidDisappear:(BOOL)animated
 {
     [super viewDidDisappear:animated];
+    [self jsq_addActionToInteractivePopGestureRecognizer:NO];
     [self jsq_removeObservers];
+    [self.keyboardController endListeningForKeyboard];
 }
 
 - (void)didReceiveMemoryWarning
@@ -291,7 +246,7 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     return YES;
 }
 
-- (NSUInteger)supportedInterfaceOrientations
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
 {
     if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
         return UIInterfaceOrientationMaskAllButUpsideDown;
@@ -315,6 +270,23 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     }
 }
 
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [self jsq_resetLayoutAndCaches];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    [self jsq_resetLayoutAndCaches];
+}
+
+- (void)jsq_resetLayoutAndCaches
+{
+    JSQMessagesCollectionViewFlowLayoutInvalidationContext *context = [JSQMessagesCollectionViewFlowLayoutInvalidationContext context];
+    context.invalidateFlowLayoutMessagesCache = YES;
+    [self.collectionView.collectionViewLayout invalidateLayoutWithContext:context];
+}
+
 #pragma mark - Messages view controller
 
 - (void)didPressSendButton:(UIButton *)button
@@ -336,23 +308,8 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     [self finishSendingMessageAnimated:YES];
 }
 
-- (void)configureWithInitialTextAndResize:(NSString *)initialText
-{
-    JSQMessagesComposerTextView *textView = self.inputToolbar.contentView.textView;
-    CGSize oldContentSize = textView.contentSize;
-    textView.text = initialText;
-    [self.inputToolbar setNeedsLayout];
-    [self.inputToolbar layoutIfNeeded];
-    [self.inputToolbar toggleSendButtonEnabled];
-    CGSize newContentSize = textView.contentSize;
-    [UIView performWithoutAnimation:^{
-        [self jsq_adjustWithOldContentSize:oldContentSize newContentSize:newContentSize];
-        [textView scrollRangeToVisible:NSMakeRange(textView.text.length - 1, 1)];
-    }];
-}
+- (void)finishSendingMessageAnimated:(BOOL)animated {
 
-- (void)finishSendingMessageAnimated:(BOOL)animated
-{
     UITextView *textView = self.inputToolbar.contentView.textView;
     textView.text = nil;
     [textView.undoManager removeAllActions];
@@ -426,12 +383,25 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
                                         animated:animated];
 }
 
+- (BOOL)isOutgoingMessage:(id<JSQMessageData>)messageItem
+{
+    NSString *messageSenderId = [messageItem senderId];
+    NSParameterAssert(messageSenderId != nil);
+    
+    return [messageSenderId isEqualToString:self.senderId];
+}
+
 #pragma mark - JSQMessages collection view data source
 
 - (id<JSQMessageData>)collectionView:(JSQMessagesCollectionView *)collectionView messageDataForItemAtIndexPath:(NSIndexPath *)indexPath
 {
     NSAssert(NO, @"ERROR: required method not implemented: %s", __PRETTY_FUNCTION__);
     return nil;
+}
+
+- (void)collectionView:(JSQMessagesCollectionView *)collectionView didDeleteMessageAtIndexPath:(NSIndexPath *)indexPath
+{
+    NSAssert(NO, @"ERROR: required method not implemented: %s", __PRETTY_FUNCTION__);
 }
 
 - (id<JSQMessageBubbleImageDataSource>)collectionView:(JSQMessagesCollectionView *)collectionView messageBubbleImageDataForItemAtIndexPath:(NSIndexPath *)indexPath
@@ -477,11 +447,8 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 {
     id<JSQMessageData> messageItem = [collectionView.dataSource collectionView:collectionView messageDataForItemAtIndexPath:indexPath];
     NSParameterAssert(messageItem != nil);
-
-    NSString *messageSenderId = [messageItem senderId];
-    NSParameterAssert(messageSenderId != nil);
-
-    BOOL isOutgoingMessage = [messageSenderId isEqualToString:self.senderId];
+    
+    BOOL isOutgoingMessage = [self isOutgoingMessage:messageItem];
     BOOL isMediaMessage = [messageItem isMediaMessage];
 
     NSString *cellIdentifier = nil;
@@ -508,10 +475,8 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
         NSParameterAssert(cell.textView.text != nil);
 
         id<JSQMessageBubbleImageDataSource> bubbleImageDataSource = [collectionView.dataSource collectionView:collectionView messageBubbleImageDataForItemAtIndexPath:indexPath];
-        if (bubbleImageDataSource != nil) {
-            cell.messageBubbleImageView.image = [bubbleImageDataSource messageBubbleImage];
-            cell.messageBubbleImageView.highlightedImage = [bubbleImageDataSource messageBubbleHighlightedImage];
-        }
+        cell.messageBubbleImageView.image = [bubbleImageDataSource messageBubbleImage];
+        cell.messageBubbleImageView.highlightedImage = [bubbleImageDataSource messageBubbleHighlightedImage];
     }
     else {
         id<JSQMessageMediaData> messageMedia = [messageItem media];
@@ -624,7 +589,7 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 - (BOOL)collectionView:(UICollectionView *)collectionView canPerformAction:(SEL)action forItemAtIndexPath:(NSIndexPath *)indexPath withSender:(id)sender
 {
-    if (action == @selector(copy:)) {
+    if (action == @selector(copy:) || action == @selector(delete:)) {
         return YES;
     }
 
@@ -636,6 +601,12 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     if (action == @selector(copy:)) {
         id<JSQMessageData> messageData = [collectionView.dataSource collectionView:collectionView messageDataForItemAtIndexPath:indexPath];
         [[UIPasteboard generalPasteboard] setString:[messageData text]];
+    }
+    else if (action == @selector(delete:)) {
+        [collectionView.dataSource collectionView:collectionView didDeleteMessageAtIndexPath:indexPath];
+
+        [collectionView deleteItemsAtIndexPaths:@[indexPath]];
+        [collectionView.collectionViewLayout invalidateLayout];
     }
 }
 
@@ -716,13 +687,6 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 #pragma mark - Text view delegate
 
-- (BOOL)textViewShouldBeginEditing:(UITextView *)textView {
-    if ([self.delegate respondsToSelector:@selector(messagesViewControllerShouldBeginEditingTextView:)]) {
-        return [self.delegate messagesViewControllerShouldBeginEditingTextView:self];
-    }
-    return YES;
-}
-
 - (void)textViewDidBeginEditing:(UITextView *)textView
 {
     if (textView != self.inputToolbar.contentView.textView) {
@@ -752,9 +716,6 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     }
 
     [textView resignFirstResponder];
-    if ([self.delegate respondsToSelector:@selector(messagesViewControllerDidEndEditingTextView:)]) {
-        [self.delegate messagesViewControllerDidEndEditingTextView:self];
-    }
 }
 
 #pragma mark - Notifications
@@ -816,8 +777,13 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
             CGSize oldContentSize = [[change objectForKey:NSKeyValueChangeOldKey] CGSizeValue];
             CGSize newContentSize = [[change objectForKey:NSKeyValueChangeNewKey] CGSizeValue];
 
-            [self jsq_adjustWithOldContentSize:oldContentSize
-                                newContentSize:newContentSize];
+            CGFloat dy = newContentSize.height - oldContentSize.height;
+
+            [self jsq_adjustInputToolbarForComposerTextViewContentSizeChange:dy];
+            [self jsq_updateCollectionViewInsets];
+            if (self.automaticallyScrollsToMostRecentMessage) {
+                [self scrollToBottomAnimated:NO];
+            }
         }
     }
 }
@@ -826,25 +792,12 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 - (void)keyboardController:(JSQMessagesKeyboardController *)keyboardController keyboardDidChangeFrame:(CGRect)keyboardFrame
 {
-    if (![self.inputToolbar.contentView.textView isFirstResponder] && 
-        self.toolbarBottomLayoutGuide.constant >= 0.0f && 
-        self.toolbarBottomLayoutGuide.constant <= 1.0f) {
-        
-        return;
-    }
-    
-    if (CGRectGetMinY(keyboardFrame) < 0) {
+    if (![self.inputToolbar.contentView.textView isFirstResponder] && self.toolbarBottomLayoutGuide.constant == 0.0f) {
         return;
     }
 
     CGFloat heightFromBottom = CGRectGetMaxY(self.collectionView.frame) - CGRectGetMinY(keyboardFrame);
 
-    // If the input is in the bottom, the only position accepted is when the keyboard full appear
-    CGFloat keyboardHeight = keyboardFrame.size.height;
-    if ((heightFromBottom > keyboardHeight + 1 || heightFromBottom < keyboardHeight)  && self.toolbarBottomLayoutGuide.constant <= 1) {
-        return;
-    }
-    
     heightFromBottom = MAX(0.0f, heightFromBottom);
 
     [self jsq_setToolbarBottomLayoutGuideConstant:heightFromBottom];
@@ -875,6 +828,8 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
                 [self.snapshotView removeFromSuperview];
             }
 
+            self.textViewWasFirstResponderDuringInteractivePop = [self.inputToolbar.contentView.textView isFirstResponder];
+
             [self.keyboardController endListeningForKeyboard];
 
             if ([UIDevice jsq_isCurrentDeviceBeforeiOS8]) {
@@ -896,6 +851,9 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
         case UIGestureRecognizerStateEnded:
         case UIGestureRecognizerStateFailed:
             [self.keyboardController beginListeningForKeyboard];
+            if (self.textViewWasFirstResponderDuringInteractivePop) {
+                [self.inputToolbar.contentView.textView becomeFirstResponder];
+            }
 
             if ([UIDevice jsq_isCurrentDeviceBeforeiOS8]) {
                 [self.snapshotView removeFromSuperview];
@@ -978,16 +936,6 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
                          textView.contentOffset = contentOffsetToShowLastLine;
                      }
                      completion:nil];
-}
-
-- (void)jsq_adjustWithOldContentSize:(CGSize)oldContentSize newContentSize:(CGSize)newContentSize {
-    CGFloat dy = newContentSize.height - oldContentSize.height;
-
-    [self jsq_adjustInputToolbarForComposerTextViewContentSizeChange:dy];
-    [self jsq_updateCollectionViewInsets];
-    if (self.automaticallyScrollsToMostRecentMessage) {
-        [self scrollToBottomAnimated:NO];
-    }
 }
 
 #pragma mark - Collection view utilities
@@ -1079,14 +1027,16 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 - (void)jsq_addActionToInteractivePopGestureRecognizer:(BOOL)addAction
 {
-    if (self.navigationController.interactivePopGestureRecognizer) {
-        [self.navigationController.interactivePopGestureRecognizer removeTarget:nil
-                                                                         action:@selector(jsq_handleInteractivePopGestureRecognizer:)];
-        
-        if (addAction) {
-            [self.navigationController.interactivePopGestureRecognizer addTarget:self
-                                                                          action:@selector(jsq_handleInteractivePopGestureRecognizer:)];
-        }
+    if (self.currentInteractivePopGestureRecognizer != nil) {
+        [self.currentInteractivePopGestureRecognizer removeTarget:nil
+                                                           action:@selector(jsq_handleInteractivePopGestureRecognizer:)];
+        self.currentInteractivePopGestureRecognizer = nil;
+    }
+
+    if (addAction) {
+        [self.navigationController.interactivePopGestureRecognizer addTarget:self
+                                                                      action:@selector(jsq_handleInteractivePopGestureRecognizer:)];
+        self.currentInteractivePopGestureRecognizer = self.navigationController.interactivePopGestureRecognizer;
     }
 }
 
