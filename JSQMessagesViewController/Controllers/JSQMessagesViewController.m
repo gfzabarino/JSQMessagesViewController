@@ -18,6 +18,8 @@
 
 #import "JSQMessagesViewController.h"
 
+#import "JSQMessagesViewController+Private.h"
+
 #import "JSQMessagesCollectionViewFlowLayoutInvalidationContext.h"
 
 #import "JSQMessageData.h"
@@ -93,14 +95,10 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
     self.jsq_isObserving = NO;
 
-    self.toolbarHeightConstraint.constant = self.inputToolbar.preferredDefaultHeight;
-
     self.collectionView.dataSource = self;
     self.collectionView.delegate = self;
 
-    self.inputToolbar.delegate = self;
-    self.inputToolbar.contentView.textView.placeHolder = [NSBundle jsq_localizedStringForKey:@"new_message"];
-    self.inputToolbar.contentView.textView.delegate = self;
+    [self jsq_configureMessagesInputToolbar];
 
     self.automaticallyScrollsToMostRecentMessage = YES;
 
@@ -127,6 +125,27 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
                                                                               contextView:self.view
                                                                      panGestureRecognizer:self.collectionView.panGestureRecognizer
                                                                                  delegate:self];
+    }
+}
+
+- (void)jsq_configureMessagesInputToolbar
+{
+    self.toolbarHeightConstraint.constant = self.inputToolbar.preferredDefaultHeight;
+    self.inputToolbar.delegate = self;
+    self.inputToolbar.contentView.textView.placeHolder = [NSBundle jsq_localizedStringForKey:@"new_message"];
+    self.inputToolbar.contentView.textView.delegate = self;
+}
+
+- (void)jsq_updateMessagesInputToolbar {
+    self.toolbarHeightConstraint.constant = self.inputToolbar.preferredDefaultHeight;
+    [self.view setNeedsUpdateConstraints];
+    [UIView animateWithDuration:0.2 animations:^{
+        [self.view layoutIfNeeded];
+    }];
+
+    [self jsq_updateCollectionViewInsets];
+    if (self.automaticallyScrollsToMostRecentMessage) {
+        [self scrollToBottomAnimated:YES];
     }
 }
 
@@ -198,10 +217,8 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     [self.collectionView.collectionViewLayout invalidateLayout];
 
     if (self.automaticallyScrollsToMostRecentMessage) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self scrollToBottomAnimated:NO];
-            [self.collectionView.collectionViewLayout invalidateLayoutWithContext:[JSQMessagesCollectionViewFlowLayoutInvalidationContext context]];
-        });
+        [self scrollToBottomAnimated:NO];
+        [self.collectionView.collectionViewLayout invalidateLayoutWithContext:[JSQMessagesCollectionViewFlowLayoutInvalidationContext context]];
     }
 
     [self jsq_updateKeyboardTriggerPoint];
@@ -702,6 +719,13 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 #pragma mark - Text view delegate
 
+- (BOOL)textViewShouldBeginEditing:(UITextView *)textView {
+    if ([self.delegate respondsToSelector:@selector(messagesViewControllerShouldBeginEditingTextView:)]) {
+        return [self.delegate messagesViewControllerShouldBeginEditingTextView:self];
+    }
+    return YES;
+}
+
 - (void)textViewDidBeginEditing:(UITextView *)textView
 {
     if (textView != self.inputToolbar.contentView.textView) {
@@ -731,6 +755,9 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
     }
 
     [textView resignFirstResponder];
+    if ([self.delegate respondsToSelector:@selector(messagesViewControllerDidEndEditingTextView:)]) {
+        [self.delegate messagesViewControllerDidEndEditingTextView:self];
+    }
 }
 
 #pragma mark - Notifications
@@ -801,11 +828,24 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 - (void)keyboardController:(JSQMessagesKeyboardController *)keyboardController keyboardDidChangeFrame:(CGRect)keyboardFrame
 {
-    if (![self.inputToolbar.contentView.textView isFirstResponder] && self.toolbarBottomLayoutGuide.constant == 0.0f) {
+    if (![self.inputToolbar.contentView.textView isFirstResponder] &&
+            self.toolbarBottomLayoutGuide.constant >= 0.0f &&
+            self.toolbarBottomLayoutGuide.constant <= 1.0f) {
+
+        return;
+    }
+
+    if (CGRectGetMinY(keyboardFrame) < 0) {
         return;
     }
 
     CGFloat heightFromBottom = CGRectGetMaxY(self.collectionView.frame) - CGRectGetMinY(keyboardFrame);
+
+    // If the input is in the bottom, the only position accepted is when the keyboard full appear
+    CGFloat keyboardHeight = keyboardFrame.size.height;
+    if ((heightFromBottom > keyboardHeight + 1 || heightFromBottom < keyboardHeight)  && self.toolbarBottomLayoutGuide.constant <= 1) {
+        return;
+    }
 
     heightFromBottom = MAX(0.0f, heightFromBottom);
 
