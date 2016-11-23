@@ -1,6 +1,6 @@
 //
 //  Created by Jesse Squires
-//  http://www.hexedbits.com
+//  http://www.jessesquires.com
 //
 //
 //  MIT License
@@ -9,7 +9,6 @@
 //
 
 #import <XCTest/XCTest.h>
-#import <OCMock/OCMock.h>
 
 #import "JSQMessagesTimestampFormatter.h"
 
@@ -99,7 +98,7 @@
     
     NSString *relativeDateString = [[JSQMessagesTimestampFormatter sharedFormatter] relativeDateForDate:date];
     
-    XCTAssertEqualObjects(relativeDateString, @"Today", @"Relative date string shoudl return expected value");
+    XCTAssertEqualObjects(relativeDateString, @"Today", @"Relative date string should return expected value");
 }
 
 @end
