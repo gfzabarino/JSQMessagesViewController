@@ -130,7 +130,6 @@ typedef void (^JSQAnimationCompletionBlock)(BOOL finished);
     [self jsq_unregisterForNotifications];
 
     [self jsq_setKeyboardViewHidden:NO];
-    self.keyboardView = nil;
 }
 
 #pragma mark - Notifications

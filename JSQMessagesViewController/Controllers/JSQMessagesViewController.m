@@ -387,6 +387,21 @@ JSQMessagesKeyboardControllerDelegate>
     [self finishSendingMessageAnimated:YES];
 }
 
+- (void)configureWithInitialTextAndResize:(NSString *)initialText
+{
+    JSQMessagesComposerTextView *textView = self.inputToolbar.contentView.textView;
+    CGSize oldContentSize = textView.contentSize;
+    textView.text = initialText;
+    [self.inputToolbar setNeedsLayout];
+    [self.inputToolbar layoutIfNeeded];
+    [self.inputToolbar toggleSendButtonEnabled];
+    CGSize newContentSize = textView.contentSize;
+    [UIView performWithoutAnimation:^{
+        [self jsq_adjustWithOldContentSize:oldContentSize newContentSize:newContentSize];
+        [textView scrollRangeToVisible:NSMakeRange(textView.text.length - 1, 1)];
+    }];
+}
+
 - (void)finishSendingMessageAnimated:(BOOL)animated {
 
     UITextView *textView = self.inputToolbar.contentView.textView;
@@ -889,13 +904,7 @@ JSQMessagesKeyboardControllerDelegate>
             CGSize oldContentSize = [[change objectForKey:NSKeyValueChangeOldKey] CGSizeValue];
             CGSize newContentSize = [[change objectForKey:NSKeyValueChangeNewKey] CGSizeValue];
 
-            CGFloat dy = newContentSize.height - oldContentSize.height;
-
-            [self jsq_adjustInputToolbarForComposerTextViewContentSizeChange:dy];
-            [self jsq_updateCollectionViewInsets];
-            if (self.automaticallyScrollsToMostRecentMessage) {
-                [self scrollToBottomAnimated:NO];
-            }
+            [self jsq_adjustWithOldContentSize:oldContentSize newContentSize:newContentSize];
         }
     }
 }
@@ -1051,6 +1060,16 @@ JSQMessagesKeyboardControllerDelegate>
 }
 
 #pragma mark - Collection view utilities
+
+- (void)jsq_adjustWithOldContentSize:(CGSize)oldContentSize newContentSize:(CGSize)newContentSize {
+    CGFloat dy = newContentSize.height - oldContentSize.height;
+
+    [self jsq_adjustInputToolbarForComposerTextViewContentSizeChange:dy];
+    [self jsq_updateCollectionViewInsets];
+    if (self.automaticallyScrollsToMostRecentMessage) {
+        [self scrollToBottomAnimated:NO];
+    }
+}
 
 - (void)jsq_updateCollectionViewInsets
 {
