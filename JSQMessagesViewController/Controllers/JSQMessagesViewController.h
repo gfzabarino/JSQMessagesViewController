@@ -234,6 +234,20 @@
 - (void)finishSendingMessage;
 
 /**
+ * Configures a dequeued cell. Use this method if you'd like to update an existing cell without dequeueing
+ * it again.
+ *
+ * @param cell
+ * @param indexPath
+ * @param collectionView
+ * @param messageItem
+ */
+- (void)configureDequeuedCell:(JSQMessagesCollectionViewCell *)cell
+                    indexPath:(NSIndexPath *)indexPath
+               collectionView:(JSQMessagesCollectionView *)collectionView
+                  messageItem:(id<JSQMessageData>)messageItem;
+
+/**
  *  The observing of the contentSize of the input toolbar's text view, and therefore the resizing
  *  of it only works after viewDidAppear: is called.
  *  Use this method if you don't want to wait for viewDidAppear: to be called to set a custom initial
