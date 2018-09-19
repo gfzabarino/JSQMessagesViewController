@@ -837,7 +837,7 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
         return;
     }
 
-    CGFloat heightFromBottom = CGRectGetMaxY(self.collectionView.frame) - CGRectGetMinY(keyboardFrame);
+    CGFloat heightFromBottom = CGRectGetMaxY(keyboardController.contextView.frame) - CGRectGetMinY(keyboardFrame);
 
     // If the input is in the bottom, the only position accepted is when the keyboard full appear
     CGFloat keyboardHeight = keyboardFrame.size.height;
@@ -852,6 +852,9 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 
 - (void)jsq_setToolbarBottomLayoutGuideConstant:(CGFloat)constant
 {
+    if (constant) {
+        constant -= self.keyboardController.contextView.frame.size.height - self.collectionView.frame.size.height;
+    }
     self.toolbarBottomLayoutGuide.constant = constant;
     [self.view setNeedsUpdateConstraints];
     [self.view layoutIfNeeded];
