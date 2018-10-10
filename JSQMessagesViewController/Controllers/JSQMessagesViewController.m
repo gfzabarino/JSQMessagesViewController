@@ -853,7 +853,7 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
 - (void)jsq_setToolbarBottomLayoutGuideConstant:(CGFloat)constant
 {
     if (constant) {
-        constant -= self.keyboardController.contextView.frame.size.height - self.collectionView.frame.size.height;
+        constant -= CGRectGetHeight(self.keyboardController.contextView.frame) - CGRectGetHeight(self.collectionView.frame) - CGRectGetMinY(self.collectionView.frame);
     }
     self.toolbarBottomLayoutGuide.constant = constant;
     [self.view setNeedsUpdateConstraints];
