@@ -837,8 +837,7 @@ static void * kJSQMessagesKeyValueObservingContext = &kJSQMessagesKeyValueObserv
         return;
     }
 
-    CGFloat heightFromBottom = CGRectGetMaxY(keyboardController.contextView.frame) - CGRectGetMinY(keyboardFrame) -
-        keyboardController.contextView.frame.origin.y;
+    CGFloat heightFromBottom = CGRectGetHeight(keyboardController.contextView.frame) - CGRectGetMinY(keyboardFrame);
 
     // If the input is in the bottom, the only position accepted is when the keyboard full appear
     CGFloat keyboardHeight = keyboardFrame.size.height;
